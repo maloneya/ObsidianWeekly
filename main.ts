@@ -1,4 +1,8 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting, TFile} from 'obsidian';
+import {request} from 'https';
+import {parseICS, FullCalendar} from 'ical';
+
+
 
 interface WeeklyNoteSettings {
 	templatePath: string;
@@ -12,6 +16,38 @@ const DEFAULT_SETTINGS: WeeklyNoteSettings = {
 
 export default class WeeklyNotePlugin extends Plugin {
 	settings: WeeklyNoteSettings;
+	cal: FullCalendar
+	
+
+	downloadICS() {
+		console.log("jello")
+		const req = request({
+			hostname: 'calendar.google.com',
+			port: 443,
+			path: '/calendar/ical/maloney.a12%40gmail.com/private-85bf3e930ec56fc2438e9ec5962331fb/basic.ics',
+			method: 'GET'
+		}, res => {
+			console.log(`statusCode: ${res.statusCode}`)
+			let data = ''
+
+			res.on('data', d => {
+				data += d
+			})
+
+			res.on('end', () => {
+				console.log("parsing")
+				this.cal = parseICS(data)
+				console.log(this.cal)
+				console.log("done")
+			});
+		})
+
+		req.on('error', error => {
+			console.error(error)
+		})
+
+		req.end()
+	}
 
 	getFileByPath(path: string): TFile {
 		return this.app.vault.getFiles().find((file) => {return file.path == path})
@@ -72,6 +108,7 @@ export default class WeeklyNotePlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+		this.downloadICS()
 
 		this.addRibbonIcon('document', 'Weekly Note', async () => {
 			let name = this.getFileName(new Date()) 
