@@ -1,3 +1,4 @@
+
 # Intellij
 *.iml
 .idea
@@ -12,3 +13,5 @@ main.js
 
 # obsidian
 data.json
+
+.DS_store
