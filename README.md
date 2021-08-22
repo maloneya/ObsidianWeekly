@@ -1,3 +1,7 @@
+
+
+
+
 ## Obsidian Weekly Note 
 
 This plugin automates a workflow for a templated weekly note. 
@@ -16,3 +20,6 @@ This plugin has two optional settings:
 ## Contributions 
 
 Feel free to sumbit a PR with other ehnachments to this plugin! 
+
+## Demo 
+https://user-images.githubusercontent.com/9469738/130338041-0cc77232-b45d-498f-9df5-24ce8d039f8b.mov
