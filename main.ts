@@ -1,60 +1,95 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting, TFile} from 'obsidian';
 
-interface MyPluginSettings {
-	mySetting: string;
+interface WeeklyNoteSettings {
+	templatePath: string;
+	logsDir: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: WeeklyNoteSettings = {
+	templatePath: "",
+	logsDir: "",
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class WeeklyNotePlugin extends Plugin {
+	settings: WeeklyNoteSettings;
 
-	async onload() {
-		console.log('loading plugin');
-
-		await this.loadSettings();
-
-		this.addRibbonIcon('dice', 'Sample Plugin', () => {
-			new Notice('This is a notice!');
-		});
-
-		this.addStatusBarItem().setText('Status Bar Text');
-
-		this.addCommand({
-			id: 'open-sample-modal',
-			name: 'Open Sample Modal',
-			// callback: () => {
-			// 	console.log('Simple Callback');
-			// },
-			checkCallback: (checking: boolean) => {
-				let leaf = this.app.workspace.activeLeaf;
-				if (leaf) {
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-					return true;
-				}
-				return false;
-			}
-		});
-
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		this.registerCodeMirror((cm: CodeMirror.Editor) => {
-			console.log('codemirror', cm);
-		});
-
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+	getFileByPath(path: string): TFile {
+		return this.app.vault.getFiles().find((file) => {return file.path == path})
 	}
 
-	onunload() {
-		console.log('unloading plugin');
+	//File is named for month.numbered-week.year
+	getFileName(d: Date): string {
+		//how to get numbered week (if there is a month change
+		//mid week we consider this week part of the last month)
+		//find date of this weeks monday, count number of weeks. 
+		
+		let MONDAY = 1
+		while (d.getDay() != MONDAY) {
+			d.setDate(d.getDate() - 1)
+		}  
+		let week = Math.floor(d.getDate()/7) + 1
+		let month =  d.getMonth() + 1
+		let year = d.getFullYear()
+		return this.settings.logsDir + month + "." + week + "." + year + ".md"
+	}
+
+	async getUnfinishedTodos(fileName: string): Promise<string[]> {
+		let lastWeekFile = this.getFileByPath(fileName)
+		if (lastWeekFile == undefined) {
+			new Notice("couldn't find last weeks note, " + fileName)
+			return [""]
+		}
+
+		let lines = (await this.app.vault.read(lastWeekFile)).split(/\r?\n/)
+		return lines.filter((line) => {return line.includes("- [ ]")})
+	}
+
+	async fillTemplate(todos: string): Promise<string> {
+		let TODO_TEMPLATE_TAG = "{{TODO}}"
+		if (todos == "") {
+			todos = "- [ ] placeholder"
+		}
+
+		if (this.settings.templatePath == "") {
+			return todos
+		}
+		
+		if (this.app.vault.getAbstractFileByPath(this.settings.templatePath) == null) {
+			new Notice("cant find template " + this.settings.templatePath)
+			return todos
+		}
+
+		let templateFile = this.getFileByPath(this.settings.templatePath)
+		let template = await this.app.vault.read(templateFile)
+		
+		if (!template.includes(TODO_TEMPLATE_TAG)) {
+			new Notice("Can't find "+ TODO_TEMPLATE_TAG +" tag in template")
+			return template + todos
+		}
+
+		return template.replace(TODO_TEMPLATE_TAG, todos)
+	}
+
+	async onload() {
+		await this.loadSettings();
+
+		this.addRibbonIcon('document', 'Weekly Note', async () => {
+			let name = this.getFileName(new Date()) 
+			if (this.app.vault.getAbstractFileByPath(name) == null) {
+				//get last weeks un finished todos
+				let lastWeek = new Date()
+				lastWeek.setDate(lastWeek.getDate() - 7)
+				let lastweeksFileName = this.getFileName(lastWeek) 
+				let todos = await this.getUnfinishedTodos(lastweeksFileName)
+				let content = await this.fillTemplate(todos.join("\n"))
+				await this.app.vault.create(name, content)
+			}
+			let file = this.getFileByPath(name)
+			await this.app.workspace.activeLeaf.openFile(file)
+		});
+
+
+		this.addSettingTab(new SettingTab(this.app, this));
 	}
 
 	async loadSettings() {
@@ -66,26 +101,10 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+class SettingTab extends PluginSettingTab {
+	plugin: WeeklyNotePlugin;
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		let {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: WeeklyNotePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -95,17 +114,25 @@ class SampleSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
+		containerEl.createEl('h2', {text: 'Weekly Note Settings'});
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
+			.setName('Weekly Note Template')
 			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue('')
+				.setPlaceholder('path to template')
+				.setValue(this.plugin.settings.templatePath)
 				.onChange(async (value) => {
-					console.log('Secret: ' + value);
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.templatePath = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Weekly Note Directory')
+			.addText(text => text
+				.setPlaceholder('path to dir')
+				.setValue(this.plugin.settings.logsDir)
+				.onChange(async (value) => {
+					this.plugin.settings.logsDir = value;
 					await this.plugin.saveSettings();
 				}));
 	}
